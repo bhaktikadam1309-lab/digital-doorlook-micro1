@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digital Door Lock using 8086</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mu:#94a3b8;--ac:#38bdf8;--ok:#22c55e;--no:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--tx)}
+h1{margin:0;padding:16px;text-align:center;font-size:1.3rem;background:#020617}
+h1 small{display:block;color:var(--mu);font-weight:400;font-size:.8rem;margin-top:4px}
+.wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;padding:14px;max-width:1200px;margin:auto}
+.card{background:var(--card);border-radius:12px;padding:14px}
+.card h2{margin:0 0 10px;font-size:1rem;color:var(--ac)}
+.lcd{background:#a3b18a;color:#1b2a10;font-family:Consolas,monospace;font-size:1.25rem;padding:10px;border-radius:6px;border:4px solid #334155;min-height:70px;letter-spacing:2px}
+.lcd div{height:28px;white-space:pre}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:14px;font-size:1.2rem;background:#334155;color:var(--tx)}
+button:active{background:var(--ac);color:#000}
+.row{display:flex;gap:8px;margin-top:10px}.row button{flex:1;font-size:.9rem;padding:10px}
+.stat{display:flex;gap:16px;align-items:center;justify-content:center;margin-top:10px}
+.led{width:22px;height:22px;border-radius:50%;background:#3f3f46;display:inline-block;vertical-align:middle;margin-right:6px}
+.led.g.on{background:var(--ok);box-shadow:0 0 12px var(--ok)}
+.led.r.on{background:var(--no);box-shadow:0 0 12px var(--no)}
+.led.b.on{background:#f59e0b;box-shadow:0 0 12px #f59e0b}
+.doorbox{height:150px;background:#0b1220;border-radius:8px;display:flex;align-items:center;justify-content:center;perspective:500px;margin-bottom:10px}
+.frame{width:90px;height:130px;background:#020617;border:5px solid #64748b;position:relative}
+.door{position:absolute;inset:0;background:#92400e;transform-origin:left;transition:transform .8s;border-right:3px solid #78350f}
+.door::after{content:"";position:absolute;right:8px;top:60px;width:8px;height:8px;border-radius:50%;background:gold}
+.open .door{transform:rotateY(-100deg)}
+.dots{text-align:center;font-size:1.6rem;letter-spacing:8px;height:34px}
+table{width:100%;border-collapse:collapse;font-family:Consolas,monospace;font-size:.9rem}
+td{padding:3px 6px;border-bottom:1px solid #334155}td:first-child{color:var(--ac)}
+pre{margin:0;font-family:Consolas,monospace;font-size:.78rem;line-height:1.5;overflow:auto;max-height:520px;background:#020617;border-radius:8px;padding:8px}
+pre span{display:block;padding:0 6px;white-space:pre;border-left:3px solid transparent}
+pre span.hl{background:#164e63;border-left-color:#22d3ee}
+.cm{color:#64748b}
+.log{font-family:Consolas,monospace;font-size:.78rem;height:130px;overflow:auto;background:#020617;border-radius:8px;padding:8px;color:var(--mu)}
+.wide{grid-column:1/-1}
+ul{margin:0;padding-left:18px;color:var(--mu);font-size:.9rem;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>Digital Door Lock System using 8086 Microprocessor<small>Software simulation of 8086 + 8255 PPI + Keypad + LCD + Relay + Buzzer</small></h1>
+<div class="wrap">
+
+<div class="card">
+<h2>Keypad &amp; Door</h2>
+<div class="doorbox" id="doorbox"><div class="frame"><div class="door"></div></div></div>
+<div class="lcd"><div id="l1"></div><div id="l2"></div></div>
+<div class="dots" id="dots"></div>
+<div class="keys" id="keys"></div>
+<div class="row"><button id="bchg">Change PIN</button><button id="brst">Reset System</button></div>
+<div class="stat">
+<span><i class="led g" id="lg"></i>Relay</span>
+<span><i class="led r" id="lr"></i>Locked</span>
+<span><i class="led b" id="lb"></i>Buzzer</span>
+</div>
+<p style="color:var(--mu);font-size:.8rem;text-align:center">Default PIN: <b>1234</b> &middot; Use mouse or keyboard (0-9, Backspace = clear)</p>
+</div>
+
+<div class="card">
+<h2>8086 CPU Registers &amp; Ports</h2>
+<table id="regs"></table>
+<h2 style="margin-top:14px">Event Log</h2>
+<div class="log" id="log"></div>
+</div>
+
+<div class="card" style="grid-row:span 2">
+<h2>8086 Assembly Program (live)</h2>
+<pre id="asm"></pre>
+</div>
+
+<div class="card wide">
+<h2>How it works</h2>
+<ul>
+<li>The 8086 reads 4 key presses from the keypad (through 8255 PPI Port A) and stores them in memory buffer <b>INPUT</b> using SI and a CX counter.</li>
+<li>It compares INPUT with the stored <b>PASSWORD</b> using <b>REPE CMPSB</b>. If ZF = 1 the PIN matches.</li>
+<li>Correct PIN: 8255 Port C bit 0 = 1, the relay energises, the door unlocks, and it auto-locks after 5 seconds.</li>
+<li>Wrong PIN: TRIES is incremented. After 3 wrong attempts the buzzer (Port C bit 1) sounds and the system locks for 10 seconds.</li>
+<li>8255 addresses: Port A = 00H, Port B = 02H, Port C = 04H, Control = 06H. The code runs in emu8086 as well (keyboard via INT 21H).</li>
+</ul>
+</div>
+</div>
+
+<script>
+const ASM=[
+['H','; ---- Digital Door Lock using 8086 (emu8086 / MASM) ----'],
+['H','.MODEL SMALL'],['H','.STACK 100H'],
+['D','.DATA'],
+['D','  PASSWORD DB "1234"'],
+['D','  INPUT    DB 4 DUP(?)'],
+['D','  TRIES    DB 0'],
+['D','  MSG1 DB 10,13,"ENTER PIN : $"'],
+['D','  MSG2 DB 10,13,"ACCESS GRANTED$"'],
+['D','  MSG3 DB 10,13,"WRONG PIN$"'],
+['D','  MSG4 DB 10,13,"ALARM! LOCKED$"'],
+['C','.CODE'],
+['INIT','MAIN PROC'],
+['INIT','  MOV AX,@DATA'],
+['INIT','  MOV DS,AX          ; data segment'],
+['INIT','  MOV ES,AX          ; needed for CMPSB'],
+['INIT','  MOV AL,80H         ; 8255: all ports = output'],
+['INIT','  OUT 06H,AL'],
+['INIT','  MOV AL,00H         ; relay OFF (locked)'],
+['INIT','  OUT 04H,AL'],
+['START','START:'],
+['START','  LEA DX,MSG1        ; show "ENTER PIN"'],
+['START','  MOV AH,09H'],
+['START','  INT 21H'],
+['START','  LEA SI,INPUT       ; SI -> buffer'],
+['START','  MOV CX,4           ; 4 digits'],
+['READ','READ:'],
+['READ','  MOV AH,08H         ; read key (no echo)'],
+['READ','  INT 21H            ; AL = key'],
+['READ','  MOV [SI],AL        ; store digit'],
+['READ','  INC SI'],
+['READ','  MOV DL,"*"         ; print * on LCD'],
+['READ','  MOV AH,02H'],
+['READ','  INT 21H'],
+['READ','  LOOP READ          ; CX = CX-1, repeat'],
+['CHECK','  LEA SI,INPUT       ; compare INPUT & PASSWORD'],
+['CHECK','  LEA DI,PASSWORD'],
+['CHECK','  MOV CX,4'],
+['CHECK','  CLD'],
+['CHECK','  REPE CMPSB         ; ZF=1 if all equal'],
+['CHECK','  JNE WRONG'],
+['GRANT','GRANT:'],
+['GRANT','  LEA DX,MSG2'],
+['GRANT','  MOV AH,09H'],
+['GRANT','  INT 21H'],
+['GRANT','  MOV TRIES,0'],
+['GRANT','  MOV AL,01H         ; relay ON -> door opens'],
+['GRANT','  OUT 04H,AL'],
+['GRANT','  CALL DELAY         ; keep open ~5 sec'],
+['GRANT','  MOV AL,00H         ; relay OFF -> door locks'],
+['GRANT','  OUT 04H,AL'],
+['GRANT','  JMP START'],
+['WRONG','WRONG:'],
+['WRONG','  LEA DX,MSG3'],
+['WRONG','  MOV AH,09H'],
+['WRONG','  INT 21H'],
+['WRONG','  INC TRIES'],
+['WRONG','  CMP TRIES,3'],
+['WRONG','  JAE ALARM          ; 3 wrong -> alarm'],
+['WRONG','  JMP START'],
+['ALARM','ALARM:'],
+['ALARM','  LEA DX,MSG4'],
+['ALARM','  MOV AH,09H'],
+['ALARM','  INT 21H'],
+['ALARM','  MOV AL,02H         ; buzzer ON (PC1)'],
+['ALARM','  OUT 04H,AL'],
+['ALARM','  CALL DELAY         ; lock for 10 sec'],
+['ALARM','  CALL DELAY'],
+['ALARM','  MOV AL,00H         ; buzzer OFF'],
+['ALARM','  OUT 04H,AL'],
+['ALARM','  MOV TRIES,0'],
+['ALARM','  JMP START'],
+['C','MAIN ENDP'],
+['DLY','DELAY PROC'],
+['DLY','  MOV BX,0FFFFH'],
+['DLY','L1: MOV CX,0FFFFH'],
+['DLY','L2: LOOP L2'],
+['DLY','  DEC BX'],
+['DLY','  JNZ L1'],
+['DLY','  RET'],
+['DLY','DELAY ENDP'],
+['C','END MAIN'],
+];
+const pre=document.getElementById('asm');
+pre.innerHTML=ASM.map(l=>'<span data-b="'+l[0]+'">'+l[1].replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(;.*)$/,'<i class="cm">$1</i>')+'</span>').join('');
+function hl(b){pre.querySelectorAll('span').forEach(s=>s.classList.toggle('hl',s.dataset.b===b));
+ const f=pre.querySelector('span.hl');if(f)pre.scrollTop=f.offsetTop-120;}
+
+// ---- machine state ----
+let S;
+const $=id=>document.getElementById(id);
+let pwd='1234',timers=[],mode='lock';// lock | newpin
+function fresh(){S={AX:0,BX:0,CX:4,DX:0,SI:0,DI:0,ZF:0,tries:0,buf:'',pa:0,pc:0,state:'input'};}
+fresh();
+function hex(v,n){return v.toString(16).toUpperCase().padStart(n,'0')+'H'}
+function render(){
+ $('regs').innerHTML=[['AX',hex(S.AX,4)+' (AL="'+(S.AX&255?String.fromCharCode(S.AX&255):'')+'")'],['BX',hex(S.BX,4)],['CX',hex(S.CX,4)+' (digits left)'],['DX',hex(S.DX,4)],['SI',hex(S.SI,4)+' (buffer idx)'],['DI',hex(S.DI,4)],['ZF',S.ZF],['TRIES',S.tries],['Port A (00H)',hex(S.pa,2)+' keypad'],['Port C (04H)',hex(S.pc,2)+' (PC0=relay PC1=buzzer)']].map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('');
+ $('dots').textContent='\u25CF'.repeat(S.buf.length)+'\u25CB'.repeat(4-S.buf.length);
+ const un=S.pc&1,al=S.pc&2;
+ $('lg').classList.toggle('on',!!un);$('lr').classList.toggle('on',!un);$('lb').classList.toggle('on',!!al);
+ $('doorbox').classList.toggle('open',!!un);
+}
+function lcd(a,b){$('l1').textContent=a;$('l2').textContent=b||''}
+function log(t){const d=$('log');d.innerHTML+='['+new Date().toLocaleTimeString()+'] '+t+'<br>';d.scrollTop=d.scrollHeight}
+function later(f,ms){timers.push(setTimeout(f,ms))}
+let ac;function beep(f,ms){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.value=.05;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+ms/1000)}catch(e){}}
+let alarmIv;
+function prompt1(){S.state='input';S.buf='';S.CX=4;S.SI=0;lcd(mode==='lock'?'ENTER PIN :':'NEW PIN :','');hl('START');render()}
+
+function press(k){
+ if(S.state!=='input')return;
+ if(k==='*'){S.buf='';S.CX=4;S.SI=0;lcd(mode==='lock'?'ENTER PIN :':'NEW PIN :','');render();return}
+ S.pa=0x30+(+k);S.AX=0x0800+S.pa;S.buf+=k;S.SI=S.buf.length;S.CX=4-S.buf.length;
+ beep(800,60);hl('READ');lcd(mode==='lock'?'ENTER PIN :':'NEW PIN :','*'.repeat(S.buf.length));
+ log('READ: key '+k+' -> INPUT['+(S.SI-1)+'], CX='+S.CX);render();
+ if(S.buf.length===4){S.state='busy';later(mode==='lock'?check:savePin,400)}
+}
+function check(){
+ hl('CHECK');S.SI=4;S.DI=4;S.CX=0;
+ const ok=S.buf===pwd;S.ZF=ok?1:0;log('CHECK: REPE CMPSB -> ZF='+S.ZF);render();
+ later(ok?grant:wrong,700);
+}
+function grant(){
+ hl('GRANT');S.tries=0;S.pc=1;S.AX=0x0001;lcd('ACCESS GRANTED','DOOR OPEN');beep(1200,300);
+ log('GRANT: OUT 04H,01H -> relay ON, door open (5 sec)');render();
+ later(()=>{S.pc=0;S.AX=0;log('GRANT: OUT 04H,00H -> relay OFF, door locked');render();prompt1()},5000);
+}
+function wrong(){
+ hl('WRONG');S.tries++;lcd('WRONG PIN','TRIES: '+S.tries+'/3');beep(200,500);log('WRONG: TRIES='+S.tries);render();
+ if(S.tries>=3){later(alarm,1200)}else later(prompt1,1500);
+}
+function alarm(){
+ hl('ALARM');S.pc=2;S.AX=2;let t=10;log('ALARM: OUT 04H,02H -> buzzer ON, locked 10 sec');render();
+ alarmIv=setInterval(()=>{lcd('ALARM! LOCKED','WAIT '+t+' SEC');beep(1000,250);t--;
+  if(t<0){clearInterval(alarmIv);S.pc=0;S.tries=0;S.AX=0;log('ALARM: buzzer OFF, TRIES reset');render();prompt1()}},1000);
+ lcd('ALARM! LOCKED','WAIT 10 SEC');
+}
+function savePin(){
+ pwd=S.buf;mode='lock';S.state='busy';lcd('PIN CHANGED','SAVED IN DATA');log('PASSWORD updated in .DATA segment');beep(1000,200);later(prompt1,1500);
+}
+$('bchg').onclick=()=>{
+ if(S.pc&1&&S.state==='input'||S.state==='input'&&S.pc===1){mode='newpin';prompt1();log('Change PIN mode')}
+ else{lcd('UNLOCK FIRST','TO CHANGE PIN');beep(200,200);later(()=>{if(S.state==='input')prompt1()},1500)}
+};
+$('brst').onclick=()=>{timers.forEach(clearTimeout);clearInterval(alarmIv);timers=[];fresh();mode='lock';log('RESET: 8086 restarted');init()};
+function init(){S.pc=0;lcd('8086 DOOR LOCK','BOOTING...');hl('INIT');render();later(prompt1,1200)}
+
+const kb=$('keys');
+['1','2','3','4','5','6','7','8','9','*','0','#'].forEach(k=>{
+ const b=document.createElement('button');b.textContent=k;
+ b.onclick=()=>{if(k!=='#')press(k)};kb.appendChild(b)});
+document.addEventListener('keydown',e=>{if(/^[0-9]$/.test(e.key))press(e.key);else if(e.key==='Backspace')press('*')});
+init();
+</script>
+</body>
+</html>
